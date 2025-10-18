@@ -1,4 +1,4 @@
-<img width="629" height="833" alt="Screenshot 2025-10-18 102937" src="https://github.com/user-attachments/assets/e2812c27-5626-4833-8de8-f8350851f56a" /># 🌿 Sarawak Agri-Advisor
+# 🌿 Sarawak Agri-Advisor
 
 **AI-powered plant disease diagnosis system for farmers in Sarawak.**
 

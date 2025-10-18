@@ -120,6 +120,66 @@ The project consists of a backend server and a frontend web page. Both need to b
 2.  **Simply double-click the `index.html` file.**
 3.  This will open the application in your default web browser. You can now use the app to upload images and get a diagnosis.
 
+🚀 Getting Started (Automated Setup)
+Follow these instructions to automatically set up the project environment on a Windows 10/11 machine using PowerShell.
+📋 Prerequisites
+You need to run these commands in Windows PowerShell as an Administrator.
+An active internet connection.
+⚙️ Automated Installation & Setup
+Open Windows PowerShell as Administrator (Right-click the Start Menu -> select "PowerShell (Admin)" or "Terminal (Admin)") and execute the following commands step-by-step.
+Install Chocolatey (The Windows Package Manager):
+Chocolatey is a command-line package manager for Windows that simplifies software installation. We'll use it to install Git and Python.
+First, check if Chocolatey is installed:
+code
+Powershell
+choco --version
+If it returns a version number, skip to the next step. If you get an error, run the following command to install it (copy and paste the entire block):
+code
+Powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+After installation, close and reopen PowerShell as Administrator to ensure choco is in your PATH.
+Install Git and Python using Chocolatey:
+This single command will install the latest stable versions of Git and Python 3.10.
+code
+Powershell
+choco install git python --version=3.10 -y
+After installation, close and reopen PowerShell as Administrator again to ensure git and python are recognized.
+Clone the project repository:
+Navigate to your desired projects directory (e.g., Documents) and clone the repository.
+code
+Powershell
+cd ~\Documents
+git clone https://github.com/Siew22/sarawak_agri.git
+cd sarawak_agri
+Create and activate a Python virtual environment:
+This isolates the project's dependencies from your system.
+code
+Powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+You should now see (venv) at the beginning of your command prompt.
+Install all required Python packages:
+code
+Powershell
+pip install -r requirements.txt
+Download the Dataset (Required for Training):
+code
+Powershell
+git clone https://github.com/spMohanty/PlantVillage-Dataset.git
+Obtain the AI Model File:
+The trained model (.pth) is not included in the repository.
+Option A (Recommended): Manually get the pre-trained .pth file from a project partner and place it inside the models_store/ folder.
+Option B (From Scratch): Follow the "Training the Model" section below.
+✅ Setup Complete! Your environment is now fully configured. Proceed to the "Running the Application" section.
+
 ---
 
 ## 🛠️ Project Structure
+├── app/ # Main backend application source code
+├── frontend/ # All frontend files (HTML, CSS, JS)
+├── knowledge_base/ # YAML files containing the multi-language knowledge
+├── models_store/ # Stores the trained model (.pth) and label files
+├── train/ # Scripts for training the AI model
+├── .gitignore # Specifies files for Git to ignore
+├── README.md # This file
+├── requirements.txt # Python dependencies

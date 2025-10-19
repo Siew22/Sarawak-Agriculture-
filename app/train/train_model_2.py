@@ -1,3 +1,4 @@
+# train/train_model_2.py (12GB VRAM - 最终旗舰野战版)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -14,13 +15,11 @@ from albumentations.pytorch import ToTensorV2
 
 # --- 12GB VRAM 自研旗舰配置 ---
 DATA_DIR = '../../PlantVillage-Dataset/raw/color'
-MODEL_SAVE_PATH = '../../models_store/true_scratch_model_b2_v1.pth' # 全新命名，代表纯血自研v1版
+MODEL_SAVE_PATH = '../../models_store/pepper_model_b2_v3_robust.pth' # v3 代表鲁棒性增强版
 LABELS_PATH = '../../models_store/disease_labels.json'
-
-# --- 更激进的参数，旨在打破“模式崩溃” ---
 BATCH_SIZE = 32
 NUM_WORKERS = 4
-NUM_EPOCHS = 60  # 从零训练需要更充分的时间来学习
+NUM_EPOCHS = 80 # 更多的数据和更难的任务，需要更长的训练
 LEARNING_RATE = 0.001
 MODEL_ARCHITECTURE = 'efficientnet_b2'
 
@@ -37,10 +36,9 @@ class PlantVillageDataset(Dataset):
 
     def __getitem__(self, idx):
         image, label = self.dataset[idx]
-        image = np.array(image) # Albumentations 需要 NumPy 数组格式
+        image = np.array(image)
         if self.transform:
-            augmented = self.transform(image=image)
-            image = augmented['image']
+            image = self.transform(image=image)['image']
         return image, label
 
 def train():
@@ -50,34 +48,36 @@ def train():
     else: 
         print(f"✅ 检测到CUDA设备: {torch.cuda.get_device_name(0)}")
 
+    # --- 自动更新标签文件 ---
+    print("正在扫描数据集并更新标签文件...")
     try:
-        with open(LABELS_PATH, 'r') as f:
-            NUM_CLASSES = len(json.load(f))
+        class_names = sorted([d for d in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, d))])
+        NUM_CLASSES = len(class_names)
+        label_map = {str(i): class_name for i, class_name in enumerate(class_names)}
+        with open(LABELS_PATH, 'w') as f:
+            json.dump(label_map, f, indent=4)
+        print(f"✅ 标签文件已更新，共找到 {NUM_CLASSES} 个类别。")
     except FileNotFoundError:
-        print(f"❌ 错误: 标签文件 '{LABELS_PATH}' 未找到！请确保路径正确。")
+        print(f"❌ 错误: 数据集目录 '{DATA_DIR}' 未找到！请检查路径是否为 '../../PlantVillage-Dataset/raw/color'。")
         return
-    print(f"✅ 数据集共有 {NUM_CLASSES} 个类别。")
-
-    # --- 第一味火：极限数据增强 (Albumentations) ---
+    
+    # --- 极限野外模拟 数据增强 (Albumentations) ---
     data_transforms = {
         'train': A.Compose([
-            # --- ↓↓↓ 关键修复：使用新的函数调用语法 ↓↓↓ ---
-            A.RandomResizedCrop(size=(260, 260), scale=(0.7, 1.0), p=1.0),
+            A.RandomResizedCrop(height=260, width=260, scale=(0.6, 1.0), p=1.0),
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
+            A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
+            A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.3),
             A.OneOf([
-                A.ISONoise(p=1.0),
-                A.GaussNoise(p=1.0),
-            ], p=0.2),
-            A.OneOf([
-                A.RandomBrightnessContrast(p=1.0),
-                A.HueSaturationValue(p=1.0),
+                A.GaussNoise(p=1.0), A.ISONoise(p=1.0),
+                A.MotionBlur(blur_limit=7, p=1.0), A.GaussianBlur(blur_limit=7, p=1.0),
             ], p=0.3),
+            A.CoarseDropout(max_holes=8, max_height=32, max_width=32, fill_value=0, p=0.2),
             A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ToTensorV2(),
         ]),
-        # ... (val 部分的代码无需修改)
         'val': A.Compose([
             A.Resize(288, 288),
             A.CenterCrop(260, 260),
@@ -86,17 +86,11 @@ def train():
         ]),
     }
 
-    # --- 使用自定义数据集类 ---
     full_dataset = PlantVillageDataset(root_dir=DATA_DIR)
-    
-    # 划分训练集和验证集
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size
-    # 使用生成器确保每次运行的划分都不同，增加随机性
     generator = torch.Generator().manual_seed(42) 
     train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size], generator=generator)
-
-    # 为Subset应用transform的正确方式
     train_dataset.dataset.transform = data_transforms['train']
     val_dataset.dataset.transform = data_transforms['val']
     
@@ -106,23 +100,18 @@ def train():
     }
 
     print(f"正在构建一个全新的 '{MODEL_ARCHITECTURE}' 模型 (100% 完全自研)...")
-    # --- 核心保证：weights=None ---
     model = models.efficientnet_b2(weights=None, num_classes=NUM_CLASSES)
     model = model.to(device)
 
-    # --- 第二味火：更强的正则化 ---
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-2)
-    
-    # --- 第三味火：更智能的学习率策略 ---
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS - 5, eta_min=1e-6)
     
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
     start_time = time.time()
     best_acc = 0.0
 
-    # --- 训练主循环 ---
-    print("\n--- 开始“三味真火”炼丹 ---")
+    print("\n--- 开始“旗舰野战”训练 ---")
     for epoch in range(NUM_EPOCHS):
         print(f'\nEpoch {epoch+1}/{NUM_EPOCHS} | 当前学习率: {optimizer.param_groups[0]["lr"]:.6f}')
         print('-' * 25)
@@ -162,11 +151,10 @@ def train():
                 torch.save(model.state_dict(), MODEL_SAVE_PATH)
                 print(f"🎉 新的最佳自研旗舰模型已保存 (Accuracy: {best_acc:.4f}) 🎉")
         
-        # 在每个epoch结束后更新学习率
         scheduler.step()
 
     time_elapsed = time.time() - start_time
-    print(f'\n--- 炼丹完成 ---')
+    print(f'\n--- 训练完成 ---')
     print(f'总耗时: {time_elapsed // 60:.0f}分 {time_elapsed % 60:.0f}秒')
     print(f'🏆 最佳验证集准确率: {best_acc:4f}')
 

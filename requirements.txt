@@ -40,3 +40,5 @@ fasttext==0.9.2
 python-jose==3.3.0
 loguru
 albumentations
+simple_image_download==0.5
+imagehash==4.3.1

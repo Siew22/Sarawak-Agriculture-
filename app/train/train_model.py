@@ -1,4 +1,4 @@
-# train/train_model.py (6GB VRAM - 优化增强版)
+# train/train_model.py (6GB VRAM - 最终优化野战版)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -15,32 +15,27 @@ from albumentations.pytorch import ToTensorV2
 
 # --- 6GB VRAM 自研优化配置 ---
 DATA_DIR = '../../PlantVillage-Dataset/raw/color'
-MODEL_SAVE_PATH = '../../models_store/scratch_model_b0_6gb_v2.pth' # 新版本命名
+MODEL_SAVE_PATH = '../../models_store/pepper_model_b0_v3_robust.pth'
 LABELS_PATH = '../../models_store/disease_labels.json'
-
-# --- 为6GB VRAM 精心调校的参数 ---
-BATCH_SIZE = 16  # 保持一个安全的批量大小
-NUM_WORKERS = 2  # 减少CPU和内存压力
-NUM_EPOCHS = 50  # 从零训练需要足够的轮次
+BATCH_SIZE = 16
+NUM_WORKERS = 2
+NUM_EPOCHS = 60 # 同样需要更多训练
 LEARNING_RATE = 0.001
 MODEL_ARCHITECTURE = 'efficientnet_b0'
 
-# 自定义Dataset类以集成Albumentations
 class PlantVillageDataset(Dataset):
+    """自定义数据集类，以无缝集成 Albumentations 图像增强库。"""
     def __init__(self, root_dir, transform=None):
         self.dataset = datasets.ImageFolder(root=root_dir)
         self.transform = transform
         self.classes = self.dataset.classes
-
     def __len__(self):
         return len(self.dataset)
-
     def __getitem__(self, idx):
         image, label = self.dataset[idx]
         image = np.array(image)
         if self.transform:
-            augmented = self.transform(image=image)
-            image = augmented['image']
+            image = self.transform(image=image)['image']
         return image, label
 
 def train():
@@ -49,26 +44,30 @@ def train():
         print("⚠️  警告: 未检测到CUDA, 训练会非常慢。")
     else: 
         print(f"✅ 检测到CUDA设备: {torch.cuda.get_device_name(0)}")
+        print(f"   VRAM总量: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
 
+    # --- 自动更新标签文件 ---
+    print("正在扫描数据集并更新标签文件...")
     try:
-        with open(LABELS_PATH, 'r') as f:
-            NUM_CLASSES = len(json.load(f))
+        class_names = sorted([d for d in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, d))])
+        NUM_CLASSES = len(class_names)
+        label_map = {str(i): class_name for i, class_name in enumerate(class_names)}
+        with open(LABELS_PATH, 'w') as f:
+            json.dump(label_map, f, indent=4)
+        print(f"✅ 标签文件已更新，共找到 {NUM_CLASSES} 个类别。")
     except FileNotFoundError:
-        print(f"❌ 错误: 标签文件 '{LABELS_PATH}' 未找到！")
+        print(f"❌ 错误: 数据集目录 '{DATA_DIR}' 未找到！请检查路径。")
         return
-    print(f"✅ 数据集共有 {NUM_CLASSES} 个类别。")
-
-    # --- 专为6GB VRAM优化的数据增强策略 ---
+    
+    # --- 6GB VRAM 优化版野战数据增强 ---
     data_transforms = {
         'train': A.Compose([
-            # --- ↓↓↓ 关键修复：使用新的函数调用语法 ↓↓↓ ---
-            A.RandomResizedCrop(size=(224, 224), scale=(0.8, 1.0)),
+            A.RandomResizedCrop(height=224, width=224, scale=(0.75, 1.0)),
             A.HorizontalFlip(p=0.5),
-            A.RandomBrightnessContrast(p=0.2), 
+            A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.3),
             A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ToTensorV2(),
         ]),
-        # ... (val 部分的代码无需修改)
         'val': A.Compose([
             A.Resize(256, 256),
             A.CenterCrop(224, 224),
@@ -78,14 +77,10 @@ def train():
     }
 
     full_dataset = PlantVillageDataset(root_dir=DATA_DIR)
-    
-    # 划分数据集
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size
     generator = torch.Generator().manual_seed(42)
     train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size], generator=generator)
-
-    # 应用transform
     train_dataset.dataset.transform = data_transforms['train']
     val_dataset.dataset.transform = data_transforms['val']
     
@@ -95,11 +90,9 @@ def train():
     }
 
     print(f"正在构建一个全新的 '{MODEL_ARCHITECTURE}' 模型 (100% 完全自研)...")
-    # --- 核心保证：weights=None ---
     model = models.efficientnet_b0(weights=None, num_classes=NUM_CLASSES)
     model = model.to(device)
 
-    # --- 引入优化的训练策略 ---
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-2)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
@@ -108,8 +101,7 @@ def train():
     start_time = time.time()
     best_acc = 0.0
 
-    # --- 训练主循环 ---
-    print("\n--- 开始优化版训练 ---")
+    print("\n--- 开始“优化野战”训练 ---")
     for epoch in range(NUM_EPOCHS):
         print(f'\nEpoch {epoch+1}/{NUM_EPOCHS} | 当前学习率: {optimizer.param_groups[0]["lr"]:.6f}')
         print('-' * 25)
